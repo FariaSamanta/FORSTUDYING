@@ -1,92 +1,182 @@
+import matplotlib
+matplotlib.use('TkAgg')  # Force Tkinter backend
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider, Button, RadioButtons
 from battery_model import BatteryModel
 
-def simulate_charging(model, charging_mode, total_minutes=120):
-    """Simulate battery charging with real-time visualization"""
-    # Setup figure and subplots
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 10))
-    fig.suptitle('EV Battery Charging Simulation', fontsize=16)
-    plt.subplots_adjust(hspace=0.4)
-    
-    # Set charging power based on mode (Watts)
-    power_levels = {
-        'Home Plug (L1)': 1800, 
-        'Home Plug (L2)': 7200,
-        'Supercharger': 150000
-    }
-    power = power_levels[charging_mode]
-    
-    # Initialize data storage
-    times = [0]
-    socs = [model.soc * 100]
-    temps = [model.temperature]
-    volts = [model.voltage]
-    effs = [model.efficiency() * 100]
-    
-    # Create plots
-    line_soc, = ax1.plot(times, socs, 'b-', label='SOC (%)')
-    line_temp, = ax1.plot(times, temps, 'r-', label='Temp (°C)')
-    line_eff, = ax1.plot(times, effs, 'g-', label='Efficiency (%)')
-    ax1.set_title('State of Charge, Temperature and Efficiency')
-    ax1.set_xlabel('Time (minutes)')
-    ax1.set_ylabel('Value')
-    ax1.legend(loc='upper left')
-    ax1.grid(True)
-    ax1.set_ylim(0, 100)
-    
-    line_voltage, = ax2.plot(times, volts, 'm-', label='Voltage (V)')
-    ax2.set_title('Voltage')
-    ax2.set_xlabel('Time (minutes)')
-    ax2.set_ylabel('Voltage (V)')
-    ax2.legend(loc='upper left')
-    ax2.grid(True)
-    ax2.set_ylim(200, 400)
-    
-    # Add text annotations
-    time_text = ax1.text(0.02, 0.95, '', transform=ax1.transAxes)
-    power_text = ax1.text(0.02, 0.85, f'Power: {power/1000:.1f} kW | SOC: {socs[-1]:.1f}%', transform=ax1.transAxes)
-    mode_text = ax1.text(0.02, 0.75, f'Mode: {charging_mode}', transform=ax1.transAxes)
-    
-    # Animation update function
-    def update(frame):
+class BatterySimulation:
+    def __init__(self):
+        self.fig = None
+        self.ax1 = None
+        self.ax2 = None
+        self.line_soc = None
+        self.line_temp = None
+        self.line_eff = None
+        self.line_voltage = None
+        self.time_text = None
+        self.power_text = None
+        self.mode_text = None
+        self.model = None
+        self.charging_mode = None
+        self.ani = None
+        self.annot_soc = None
+        self.annot_temp = None
+        self.annot_eff = None
+        self.annot_voltage = None
+        
+    def simulate_charging(self, charging_mode, total_minutes=120):
+        """Simulate battery charging with real-time visualization"""
+        # Setup figure and subplots
+        self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(12, 10))
+        self.fig.suptitle('EV Battery Charging Simulation', fontsize=16)
+        plt.subplots_adjust(hspace=0.4)
+        
+        # Set charging power based on mode (Watts)
+        power_levels = {
+            'Home Plug (L1)': 1800, 
+            'Home Plug (L2)': 7200,
+            'Supercharger': 150000
+        }
+        power = power_levels[charging_mode]
+        self.charging_mode = charging_mode
+        
+        # Initialize data storage
+        self.times = [0]
+        self.socs = [self.model.soc * 100]
+        self.temps = [self.model.temperature]
+        self.volts = [self.model.voltage]
+        self.effs = [self.model.efficiency() * 100]
+        
+        # Create plots with markers
+        self.line_soc, = self.ax1.plot(self.times, self.socs, 'b-', label='SOC (%)', marker='o', markersize=4)
+        self.line_temp, = self.ax1.plot(self.times, self.temps, 'r-', label='Temp (°C)', marker='s', markersize=4)
+        self.line_eff, = self.ax1.plot(self.times, self.effs, 'g-', label='Efficiency (%)', marker='^', markersize=4)
+        self.ax1.set_title('State of Charge, Temperature and Efficiency')
+        self.ax1.set_xlabel('Time (minutes)')
+        self.ax1.set_ylabel('Value')
+        
+        # Position legend in upper right to avoid overlapping
+        self.ax1.legend(loc='upper right')
+        self.ax1.grid(True)
+        self.ax1.set_ylim(0, 100)
+        
+        self.line_voltage, = self.ax2.plot(self.times, self.volts, 'm-', label='Voltage (V)', marker='d', markersize=4)
+        self.ax2.set_title('Voltage')
+        self.ax2.set_xlabel('Time (minutes)')
+        self.ax2.set_ylabel('Voltage (V)')
+        self.ax2.legend(loc='upper right')  # Position legend in upper right
+        self.ax2.grid(True)
+        self.ax2.set_ylim(200, 400)
+        
+        # Add text annotations in lower left with backgrounds
+        self.time_text = self.ax1.text(0.02, 0.05, '', transform=self.ax1.transAxes,
+                                      bbox=dict(facecolor='white', alpha=0.7, boxstyle="round,pad=0.3"))
+        self.power_text = self.ax1.text(0.02, 0.15, f'Power: {power/1000:.1f} kW | SOC: {self.socs[-1]:.1f}%', 
+                                       transform=self.ax1.transAxes,
+                                       bbox=dict(facecolor='white', alpha=0.7, boxstyle="round,pad=0.3"))
+        self.mode_text = self.ax1.text(0.02, 0.25, f'Mode: {charging_mode}', 
+                                      transform=self.ax1.transAxes,
+                                      bbox=dict(facecolor='white', alpha=0.7, boxstyle="round,pad=0.3"))
+        
+        # Initialize point annotations
+        self.annot_soc = self.ax1.annotate('', xy=(0,0), xytext=(5,5), textcoords='offset points',
+                                          bbox=dict(boxstyle="round,pad=0.3", fc="lightblue", alpha=0.7))
+        self.annot_temp = self.ax1.annotate('', xy=(0,0), xytext=(5,5), textcoords='offset points',
+                                           bbox=dict(boxstyle="round,pad=0.3", fc="lightcoral", alpha=0.7))
+        self.annot_eff = self.ax1.annotate('', xy=(0,0), xytext=(5,5), textcoords='offset points',
+                                          bbox=dict(boxstyle="round,pad=0.3", fc="lightgreen", alpha=0.7))
+        self.annot_voltage = self.ax2.annotate('', xy=(0,0), xytext=(5,5), textcoords='offset points',
+                                              bbox=dict(boxstyle="round,pad=0.3", fc="plum", alpha=0.7))
+        
+        # Hide annotations initially
+        self.annot_soc.set_visible(False)
+        self.annot_temp.set_visible(False)
+        self.annot_eff.set_visible(False)
+        self.annot_voltage.set_visible(False)
+        
+        # Create animation (1 frame per second = 1 minute of charging)
+        self.ani = FuncAnimation(self.fig, self.update, frames=total_minutes, 
+                                interval=1000, blit=False)
+        
+        plt.tight_layout(rect=[0, 0, 1, 0.96])
+        plt.show()
+
+    def update(self, frame):
+        """Animation update function"""
+        # Set charging power based on mode
+        power_levels = {
+            'Home Plug (L1)': 1800, 
+            'Home Plug (L2)': 7200,
+            'Supercharger': 150000
+        }
+        power = power_levels[self.charging_mode]
+        
         # Charge for 1 minute (60 seconds)
-        metrics = model.charge(power, 60)
+        metrics = self.model.charge(power, 60)
         
         # Record data
-        times.append(times[-1] + 1)
-        socs.append(metrics['soc'])
-        temps.append(metrics['temperature'])
-        volts.append(metrics['voltage'])
-        effs.append(metrics['efficiency'])
+        self.times.append(self.times[-1] + 1)
+        self.socs.append(metrics['soc'])
+        self.temps.append(metrics['temperature'])
+        self.volts.append(metrics['voltage'])
+        self.effs.append(metrics['efficiency'])
         
         # Update plots
-        line_soc.set_data(times, socs)
-        line_temp.set_data(times, temps)
-        line_eff.set_data(times, effs)
-        line_voltage.set_data(times, volts)
+        self.line_soc.set_data(self.times, self.socs)
+        self.line_temp.set_data(self.times, self.temps)
+        self.line_eff.set_data(self.times, self.effs)
+        self.line_voltage.set_data(self.times, self.volts)
         
         # Update axes limits
-        ax1.set_xlim(0, max(10, times[-1] + 5))
-        ax2.set_xlim(0, max(10, times[-1] + 5))
+        self.ax1.set_xlim(0, max(10, self.times[-1] + 5))
+        self.ax2.set_xlim(0, max(10, self.times[-1] + 5))
         
         # Update text
-        time_text.set_text(f'Time: {times[-1]} min')
-        power_text.set_text(f'Power: {power/1000:.1f} kW | SOC: {socs[-1]:.1f}%')
+        self.time_text.set_text(f'Time: {self.times[-1]} min')
+        self.power_text.set_text(f'Power: {power/1000:.1f} kW | SOC: {self.socs[-1]:.1f}%')
         
-        return (line_soc, line_temp, line_eff, line_voltage, 
-                time_text, power_text)
+        # Update point annotations
+        self._update_annotations()
+        
+        return (self.line_soc, self.line_temp, self.line_eff, self.line_voltage, 
+                self.time_text, self.power_text)
     
-    # Create animation (1 frame per second = 1 minute of charging)
-    ani = FuncAnimation(fig, update, frames=total_minutes, 
-                        interval=1000, blit=False)
-    
-    plt.tight_layout(rect=[0, 0, 1, 0.96])
-    plt.show()
+    def _update_annotations(self):
+        """Update the data point annotations"""
+        # Update and show annotations for the latest point
+        x = self.times[-1]
+        
+        # SOC annotation
+        self.annot_soc.xy = (x, self.socs[-1])
+        self.annot_soc.set_text(f'SOC: {self.socs[-1]:.1f}%')
+        self.annot_soc.set_visible(True)
+        
+        # Temperature annotation
+        self.annot_temp.xy = (x, self.temps[-1])
+        self.annot_temp.set_text(f'Temp: {self.temps[-1]:.1f}°C')
+        self.annot_temp.set_visible(True)
+        
+        # Efficiency annotation
+        self.annot_eff.xy = (x, self.effs[-1])
+        self.annot_eff.set_text(f'Eff: {self.effs[-1]:.1f}%')
+        self.annot_eff.set_visible(True)
+        
+        # Voltage annotation
+        self.annot_voltage.xy = (x, self.volts[-1])
+        self.annot_voltage.set_text(f'Volt: {self.volts[-1]:.1f}V')
+        self.annot_voltage.set_visible(True)
+        
+        # Adjust positions to prevent overlap
+        self.annot_soc.xyann = (10, 0)
+        self.annot_temp.xyann = (10, -25)
+        self.annot_eff.xyann = (10, 25)
+        self.annot_voltage.xyann = (10, 0)
 
 def create_gui():
     """Create a GUI for setting simulation parameters"""
+    sim = BatterySimulation()
+    
     fig, ax = plt.subplots(figsize=(10, 7))
     plt.subplots_adjust(left=0.1, bottom=0.4)
     ax.set_title('EV Battery Charging Simulator - Configure Parameters')
@@ -110,9 +200,9 @@ def create_gui():
     # Button click handler
     def start_simulation(event):
         plt.close(fig)
-        model = BatteryModel(initial_soc=soc_slider.val/100, 
-                            ambient_temp=temp_slider.val)
-        simulate_charging(model, radio.value_selected)
+        sim.model = BatteryModel(initial_soc=soc_slider.val/100, 
+                                ambient_temp=temp_slider.val)
+        sim.simulate_charging(radio.value_selected)
     
     button.on_clicked(start_simulation)
     
