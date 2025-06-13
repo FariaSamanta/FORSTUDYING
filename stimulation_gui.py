@@ -1,5 +1,17 @@
+import os
 import matplotlib
-matplotlib.use('TkAgg')  # Force Tkinter backend
+
+# Auto-detect if we're in a Codespace environment
+if os.environ.get('CODESPACES') == 'true' or not os.environ.get('DISPLAY'):
+    matplotlib.use('Agg')  # Non-interactive for Codespaces/headless
+    print("Running in non-interactive mode (Codespace)")
+else:
+    matplotlib.use('TkAgg')  # Interactive for local machines
+    print("Running in interactive mode (Local)")
+    
+import termplotlib as tpl
+import matplotlib
+matplotlib.use('Agg')  # Force Tkinter backend
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider, Button, RadioButtons
