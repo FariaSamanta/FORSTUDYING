@@ -46,6 +46,7 @@
 - `Matplotlib` - Visualizations and plots
 - `Matplotlib Widgets` - Interactive GUI elements
 - `Matplotlib Animation` - Real-time updating graphs
+- `ffmpeg`-Video creation for the mode selected
 
 ## 🚀 Getting Started
 
@@ -53,4 +54,4 @@
 - Python 3.10+
 - Required packages:  
   ```bash
-  pip install numpy matplotlib pillow
+  pip install numpy matplotlib pillow ffmpeg
