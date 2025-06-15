@@ -1,21 +1,24 @@
 import os
+import datetime
 import matplotlib
-
-# Auto-detect if we're in a Codespace environment
-if os.environ.get('CODESPACES') == 'true' or not os.environ.get('DISPLAY'):
-    matplotlib.use('Agg')  # Non-interactive for Codespaces/headless
-    print("Running in non-interactive mode (Codespace)")
-else:
-    matplotlib.use('TkAgg')  # Interactive for local machines
-    print("Running in interactive mode (Local)")
-    
-import termplotlib as tpl
-import matplotlib
-matplotlib.use('Agg')  # Force Tkinter backend
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 from matplotlib.animation import FuncAnimation
 from matplotlib.widgets import Slider, Button, RadioButtons
 from battery_model import BatteryModel
+
+# Detect environment and set backend
+is_codespace = 'CODESPACE_NAME' in os.environ or 'CODESPACES' in os.environ
+has_display = 'DISPLAY' in os.environ and os.environ['DISPLAY']
+
+if is_codespace or not has_display:
+    matplotlib.use('TKAgg')  # Non-interactive for Codespaces
+    interactive = False
+    print("Running in non-interactive mode (Codespace)")
+else:
+    matplotlib.use('TkAgg')  # Interactive for local machines
+    interactive = True
+    print("Running in interactive mode (Local)")
 
 class BatterySimulation:
     def __init__(self):
@@ -36,9 +39,17 @@ class BatterySimulation:
         self.annot_temp = None
         self.annot_eff = None
         self.annot_voltage = None
+        self.interactive = interactive
+        self.output_dir = "simulation_frames"
+        self.timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
         
     def simulate_charging(self, charging_mode, total_minutes=120):
-        """Simulate battery charging with real-time visualization"""
+        """Simulate battery charging with real-time visualization or frame saving"""
+        # Create output directory
+        if not self.interactive:
+            os.makedirs(self.output_dir, exist_ok=True)
+            print(f"Saving frames to directory: {self.output_dir}/")
+        
         # Setup figure and subplots
         self.fig, (self.ax1, self.ax2) = plt.subplots(2, 1, figsize=(12, 10))
         self.fig.suptitle('EV Battery Charging Simulation', fontsize=16)
@@ -107,12 +118,33 @@ class BatterySimulation:
         self.annot_eff.set_visible(False)
         self.annot_voltage.set_visible(False)
         
-        # Create animation (1 frame per second = 1 minute of charging)
+        # Create animation
         self.ani = FuncAnimation(self.fig, self.update, frames=total_minutes, 
-                                interval=1000, blit=False)
+                                interval=1000 if self.interactive else 100, 
+                                blit=False)
         
-        plt.tight_layout(rect=[0, 0, 1, 0.96])
-        plt.show()
+        # Run the animation
+        if self.interactive:
+            plt.tight_layout(rect=[0, 0, 1, 0.96])
+            plt.show()
+        else:
+            # In non-interactive mode, we need to run the animation to completion
+            for frame in range(total_minutes):
+                self.update(frame)
+                if frame % 5 == 0:  # Print progress every 5 frames
+                    progress = (frame + 1) / total_minutes * 100
+                    print(f"Simulating... {progress:.1f}% complete")
+            
+            # Save final state
+            final_image = f"final_state_{self.timestamp}.png"
+            self.fig.savefig(os.path.join(self.output_dir, final_image))
+            print(f"Final state saved to {self.output_dir}/{final_image}")
+            
+            # Create video from frames
+            self.create_video(total_minutes)
+            
+            # Clean up
+            plt.close(self.fig)
 
     def update(self, frame):
         """Animation update function"""
@@ -147,9 +179,30 @@ class BatterySimulation:
         # Update text
         self.time_text.set_text(f'Time: {self.times[-1]} min')
         self.power_text.set_text(f'Power: {power/1000:.1f} kW | SOC: {self.socs[-1]:.1f}%')
+
+        # Add overheating warning if applicable
+        if metrics['power_in'] == 0:
+            warning_text = "⚠️ CHARGING STOPPED: Overheating! ⚠️"
+            # Create or update warning text
+            if not hasattr(self, 'warning_text'):
+                self.warning_text = self.ax1.text(0.5, 0.5, warning_text, 
+                                                 transform=self.ax1.transAxes,
+                                                 fontsize=20, color='red',
+                                                 ha='center', va='center',
+                                                 bbox=dict(facecolor='yellow', alpha=0.8))
+            else:
+                self.warning_text.set_text(warning_text)
+        # If charging is not stopped, remove the warning if it exists
+        elif hasattr(self, 'warning_text'):
+            self.warning_text.set_visible(False)
         
         # Update point annotations
         self._update_annotations()
+        
+        # Save frame if in non-interactive mode
+        if not self.interactive:
+            frame_file = os.path.join(self.output_dir, f"frame_{frame:04d}.png")
+            self.fig.savefig(frame_file)
         
         return (self.line_soc, self.line_temp, self.line_eff, self.line_voltage, 
                 self.time_text, self.power_text)
@@ -184,6 +237,21 @@ class BatterySimulation:
         self.annot_temp.xyann = (10, -25)
         self.annot_eff.xyann = (10, 25)
         self.annot_voltage.xyann = (10, 0)
+    
+    def create_video(self, total_frames):
+        """Create video from saved frames using ffmpeg"""
+        try:
+            video_file = f"battery_simulation_{self.timestamp}.mp4"
+            cmd = f"ffmpeg -framerate 1 -i {self.output_dir}/frame_%04d.png -c:v libx264 -pix_fmt yuv420p {video_file}"
+            os.system(cmd)
+            
+            if os.path.exists(video_file):
+                print(f"Video created successfully: {video_file}")
+                print(f"File size: {os.path.getsize(video_file)/1024:.1f} KB")
+            else:
+                print("Video creation failed. Please check if ffmpeg is installed.")
+        except Exception as e:
+            print(f"Error creating video: {e}")
 
 def create_gui():
     """Create a GUI for setting simulation parameters"""
@@ -214,7 +282,7 @@ def create_gui():
         plt.close(fig)
         sim.model = BatteryModel(initial_soc=soc_slider.val/100, 
                                 ambient_temp=temp_slider.val)
-        sim.simulate_charging(radio.value_selected)
+        sim.simulate_charging(radio.value_selected, total_minutes=120)  # Shorter for testing
     
     button.on_clicked(start_simulation)
     
